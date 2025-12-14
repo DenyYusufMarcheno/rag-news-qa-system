@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from src.preprocessing import NewsDataPreprocessor
 from src.retrieval import BM25Retriever
 from src.rag_pipeline import SimpleRAGPipeline
+from src.utils import DEFAULT_DATASET_PATH
 
 
 def main():
@@ -20,7 +21,7 @@ def main():
     print()
     
     # Path to dataset
-    data_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'News_Category_Dataset_v3.json')
+    data_path = DEFAULT_DATASET_PATH
     
     if not os.path.exists(data_path):
         print(f"ERROR: Dataset not found at {data_path}")

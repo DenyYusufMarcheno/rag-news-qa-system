@@ -193,9 +193,13 @@ class HybridRetriever:
                 return {r[0]: 0.5 for r in results}
             return {r[0]: (r[1] - min_score) / (max_score - min_score) for r in results}
         
+        def invert_distances_to_scores(results):
+            """Convert FAISS distances (lower is better) to scores (higher is better)."""
+            return [(r[0], -r[1], r[2]) for r in results]
+        
         bm25_scores = normalize_scores(bm25_results)
-        # For FAISS, lower distance is better, so invert
-        faiss_scores = normalize_scores([(r[0], -r[1], r[2]) for r in faiss_results])
+        # For FAISS, lower distance is better, so invert before normalizing
+        faiss_scores = normalize_scores(invert_distances_to_scores(faiss_results))
         
         # Combine scores
         all_doc_indices = set(bm25_scores.keys()) | set(faiss_scores.keys())

@@ -6,6 +6,8 @@ import sys
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+from src.utils import ensure_data_dir
+
 def download_kaggle_dataset():
     """Download News Category Dataset from Kaggle using Kaggle API."""
     
@@ -29,8 +31,7 @@ def download_kaggle_dataset():
         return False
     
     # Create data directory
-    data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
-    os.makedirs(data_dir, exist_ok=True)
+    data_dir = ensure_data_dir()
     
     print("Downloading dataset from Kaggle...")
     print("Dataset: rmisra/news-category-dataset")
