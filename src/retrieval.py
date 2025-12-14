@@ -354,7 +354,14 @@ class HybridRetriever:
         bm25_results = self.bm25_retriever.search(query_tokens, retrieve_k, category_filter)
         faiss_results = self.faiss_retriever.search(query, retrieve_k, category_filter)
         
-        # Create document ID mapping
+        # Create document ID mapping using a stable key
+        # Use a combination of headline and link for stable identification
+        def get_doc_key(doc):
+            """Generate a stable key for document identification."""
+            headline = doc.get('headline', '')
+            link = doc.get('link', '')
+            return f"{headline}||{link}"
+        
         doc_scores = {}
         
         # Process BM25 results
@@ -363,9 +370,9 @@ class HybridRetriever:
             bm25_scores = self._normalize_score_list(bm25_scores)
         
         for i, (doc, _) in enumerate(bm25_results):
-            doc_id = id(doc)
+            doc_key = get_doc_key(doc)
             score = bm25_scores[i] if bm25_scores else 0.0
-            doc_scores[doc_id] = {'doc': doc, 'bm25': score, 'faiss': 0.0}
+            doc_scores[doc_key] = {'doc': doc, 'bm25': score, 'faiss': 0.0}
         
         # Process FAISS results
         faiss_scores = [score for _, score in faiss_results]
@@ -373,12 +380,12 @@ class HybridRetriever:
             faiss_scores = self._normalize_score_list(faiss_scores)
         
         for i, (doc, _) in enumerate(faiss_results):
-            doc_id = id(doc)
+            doc_key = get_doc_key(doc)
             score = faiss_scores[i] if faiss_scores else 0.0
-            if doc_id in doc_scores:
-                doc_scores[doc_id]['faiss'] = score
+            if doc_key in doc_scores:
+                doc_scores[doc_key]['faiss'] = score
             else:
-                doc_scores[doc_id] = {'doc': doc, 'bm25': 0.0, 'faiss': score}
+                doc_scores[doc_key] = {'doc': doc, 'bm25': 0.0, 'faiss': score}
         
         # Compute hybrid scores
         results = []

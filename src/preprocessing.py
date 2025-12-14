@@ -98,7 +98,10 @@ class DocumentPreprocessor:
         category = doc.get('category', 'GENERAL')
         
         # Create combined text with category weighting
-        # Headline is more important, so we include it twice
+        # Headline is included twice to increase its importance in BM25 scoring
+        # This is a simple TF-IDF boosting technique - the headline is typically
+        # more informative than the description, and this helps BM25 match on
+        # headline terms more strongly. Trade-off: may over-weight headline matches.
         combined_text = f"{headline} {headline} {description}"
         
         # Add category information for better context

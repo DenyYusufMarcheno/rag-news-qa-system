@@ -27,6 +27,19 @@ class Reranker:
                 print("Reranking will be disabled.")
                 self.model = False  # Mark as failed to load
     
+    def _prepare_document_text(self, doc: Dict[str, Any]) -> str:
+        """Prepare document text for reranking.
+        
+        Args:
+            doc: Document dictionary
+            
+        Returns:
+            Formatted document text
+        """
+        headline = doc.get('headline', '')
+        description = doc.get('short_description', '')
+        return f"{headline}. {description}"
+    
     def rerank(self, query: str, documents: List[Dict[str, Any]], 
                top_k: int = 5, score_threshold: float = 0.0) -> List[Tuple[Dict[str, Any], float]]:
         """Rerank documents using cross-encoder.
@@ -53,10 +66,7 @@ class Reranker:
         # Prepare query-document pairs for cross-encoder
         pairs = []
         for doc in documents:
-            # Use headline and description for reranking
-            headline = doc.get('headline', '')
-            description = doc.get('short_description', '')
-            doc_text = f"{headline}. {description}"
+            doc_text = self._prepare_document_text(doc)
             pairs.append([query, doc_text])
         
         # Get scores from cross-encoder

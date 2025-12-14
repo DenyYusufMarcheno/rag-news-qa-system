@@ -127,8 +127,11 @@ class QueryProcessor:
         
         # Score each intent based on keyword matches
         for intent, keywords in self.intent_keywords.items():
-            # Count matching keywords
-            matches = sum(1 for keyword in keywords if keyword.lower() in query_lower)
+            # Convert keywords to set for O(1) lookups
+            keyword_set = {kw.lower() for kw in keywords}
+            
+            # Count matching keywords efficiently
+            matches = sum(1 for kw in keyword_set if kw in query_lower)
             if matches > 0:
                 # Normalize by number of query tokens
                 score = matches / max(len(query_tokens), 1)
