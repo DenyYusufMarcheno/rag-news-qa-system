@@ -1,0 +1,178 @@
+# Retrieval Configuration for RAG News QA System
+
+# Retrieval Strategy: "bm25", "faiss", or "hybrid"
+retrieval_strategy: "hybrid"
+
+# Top-K documents to retrieve
+top_k: 10
+
+# Hybrid retrieval parameters
+hybrid:
+  alpha: 0.5  # Weight for BM25 (1-alpha for FAISS)
+  normalize_scores: true
+
+# BM25 parameters
+bm25:
+  k1: 1.5
+  b: 0.75
+
+# FAISS parameters
+faiss:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  index_type: "flatl2"
+  normalize_embeddings: true
+
+# Reranking configuration
+reranking:
+  enabled: true
+  model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  top_k: 20  # Retrieve more docs before reranking
+  final_k: 5  # Return top-k after reranking
+  score_threshold: 0.0
+
+# Query preprocessing
+query_preprocessing:
+  enabled: true
+  stopword_removal: true
+  stemming: true
+  keyword_extraction: true
+  query_expansion: true
+  expansion_terms: 3
+
+# Category filtering
+category_filtering:
+  enabled: true
+  strict: false  # If true, only return docs from matching categories
+  
+# Category mappings for intent detection
+category_mappings:
+  economy:
+    - BUSINESS
+    - MONEY
+    - POLITICS
+  technology:
+    - TECH
+    - SCIENCE
+  sports:
+    - SPORTS
+  entertainment:
+    - ENTERTAINMENT
+    - ARTS & CULTURE
+  politics:
+    - POLITICS
+    - WORLD NEWS
+  health:
+    - WELLNESS
+    - HEALTHY LIVING
+    - PARENTING
+  general:
+    - U.S. NEWS
+    - WORLD NEWS
+    - IMPACT
+
+# Intent detection keywords
+intent_keywords:
+  economy:
+    - economy
+    - economic
+    - GDP
+    - recession
+    - inflation
+    - employment
+    - jobs
+    - market
+    - stock
+    - business
+    - financial
+    - fiscal
+    - monetary
+    - trade
+  technology:
+    - technology
+    - tech
+    - software
+    - hardware
+    - AI
+    - artificial intelligence
+    - machine learning
+    - computer
+    - digital
+    - internet
+    - app
+    - innovation
+  sports:
+    - sports
+    - game
+    - team
+    - player
+    - match
+    - championship
+    - tournament
+    - athlete
+    - score
+  entertainment:
+    - movie
+    - film
+    - music
+    - concert
+    - celebrity
+    - actor
+    - singer
+    - entertainment
+    - show
+    - performance
+    - album
+  politics:
+    - politics
+    - government
+    - election
+    - vote
+    - policy
+    - president
+    - senator
+    - congress
+    - law
+    - legislation
+  health:
+    - health
+    - medical
+    - disease
+    - wellness
+    - doctor
+    - hospital
+    - treatment
+    - medicine
+    - fitness
+
+# Query expansion templates
+expansion_keywords:
+  economy:
+    - GDP
+    - recession
+    - inflation
+    - employment
+    - business
+    - economic indicators
+    - financial markets
+  technology:
+    - innovation
+    - digital
+    - software
+    - hardware
+    - AI
+  sports:
+    - competition
+    - championship
+    - tournament
+  entertainment:
+    - celebrity
+    - show
+    - performance
+  politics:
+    - government
+    - policy
+    - legislation
+  health:
+    - wellness
+    - medical
+    - treatment
