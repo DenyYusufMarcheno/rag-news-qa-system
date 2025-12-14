@@ -1,5 +1,5 @@
 """
-Main application for RAG News QA System. 
+Main application for RAG News QA System with LLM Integration.
 """
 
 import os
@@ -10,22 +10,23 @@ from typing import List, Dict, Tuple, Optional
 
 try:
     from src.preprocessing import NewsDataPreprocessor
-    from src.retrieval import BM25Retriever, FAISSRetriever, HybridRetriever
+    from src. retrieval import BM25Retriever, FAISSRetriever, HybridRetriever
     from src.query_processor import QueryProcessor
+    from src. rag_pipeline import EnhancedRAGPipeline
 except ImportError as e:
-    print(f"❌ Import Error:  {e}")
+    print(f"❌ Import Error: {e}")
     print("Make sure all required modules are in src/ folder")
     sys.exit(1)
 
 
 def setup_retriever(retriever_type: str, documents: List[Dict]) -> object:
-    """Setup and build retriever index. 
+    """Setup and build retriever index.
     
     Args:
         retriever_type: Type of retriever ('bm25', 'faiss', 'hybrid')
         documents: List of processed documents
         
-    Returns:  
+    Returns: 
         Initialized retriever object
     """
     print(f"🏗️ Building {retriever_type. upper()} index...")
@@ -75,16 +76,17 @@ def format_results(results: List[Tuple[int, float]], documents: List[Dict], show
         print()
 
 
-def process_single_query(query: str, retriever: object, documents:  List[Dict], 
-                        top_k: int, query_processor):
-    """Process a single query. 
+def process_single_query(query: str, retriever: object, documents:  List[Dict],
+                        top_k: int, query_processor, use_llm: bool = False):
+    """Process a single query.
     
     Args:
-        query: User query string
-        retriever: Retriever object
-        documents: List of documents
+        query:  User query string
+        retriever:  Retriever object
+        documents:  List of documents
         top_k: Number of results to retrieve
         query_processor: Query processor object
+        use_llm: Whether to use LLM for answer generation
     """
     print(f"\nQuery: {query}")
     print("=" * 60)
@@ -98,30 +100,69 @@ def process_single_query(query: str, retriever: object, documents:  List[Dict],
     if processed['category_filters']:
         print(f"   Target Categories: {', '.join(processed['category_filters'])}")
     
-    # Retrieve documents
-    print(f"\n🔎 Retrieving documents...")
-    results = retriever. retrieve(query, top_k=top_k)
+    if use_llm:
+        # Use RAG pipeline with LLM
+        print(f"\n🤖 Using LLM for answer generation...")
+        
+        try:
+            rag_pipeline = EnhancedRAGPipeline(
+                retriever=retriever,
+                llm_provider="groq",
+                top_k=top_k
+            )
+            
+            response = rag_pipeline.query(query)
+            
+            # Display answer
+            print("\n" + "=" * 60)
+            print("💬 ANSWER:")
+            print("=" * 60)
+            print(response['answer'])
+            print("\n" + "=" * 60)
+            
+            # Display sources
+            print(f"\n📚 Based on {response['num_sources']} sources:")
+            for i, source in enumerate(response['sources'], 1):
+                print(f"   {i}. [{source['category']}] {source['headline'][: 80]}")
+            print("=" * 60)
+            
+        except Exception as e:
+            print(f"\n❌ LLM Error: {e}")
+            print("   Falling back to retrieval-only mode.. .\n")
+            use_llm = False
     
-    # Display results
-    print("-" * 60)
-    format_results(results, documents)
-    print("-" * 60)
+    if not use_llm:
+        # Retrieve documents only
+        print(f"\n🔎 Retrieving documents...")
+        results = retriever.retrieve(query, top_k=top_k)
+        
+        # Display results
+        print("-" * 60)
+        format_results(results, documents)
+        print("-" * 60)
 
 
-def interactive_mode(retriever:  object, documents: List[Dict], top_k: int):
+def interactive_mode(retriever: object, documents: List[Dict], top_k: int, use_llm: bool = False):
     """Run in interactive mode.
     
     Args:
         retriever: Retriever object
         documents: List of documents
         top_k: Number of results to retrieve
+        use_llm: Whether to use LLM
     """
     query_processor = QueryProcessor()
     
     print("\n" + "=" * 60)
     print("🤖 RAG News QA System - Interactive Mode")
+    if use_llm:
+        print("   🧠 LLM-Powered Answers Enabled (Groq)")
+    else:
+        print("   📄 Retrieval-Only Mode")
     print("=" * 60)
     print("Enter your questions about news.  Type 'quit' or 'exit' to stop.")
+    if use_llm:
+        print("💡 Tip: LLM will synthesize answers from retrieved documents")
     print("=" * 60 + "\n")
     
     while True:
@@ -135,12 +176,12 @@ def interactive_mode(retriever:  object, documents: List[Dict], top_k: int):
                 break
             
             # Process query
-            process_single_query(query, retriever, documents, top_k, query_processor)
+            process_single_query(query, retriever, documents, top_k, query_processor, use_llm)
             
         except KeyboardInterrupt:
             print("\n\n👋 Goodbye!")
             break
-        except Exception as e:
+        except Exception as e: 
             print(f"\n❌ Error: {e}")
             continue
 
@@ -151,13 +192,15 @@ def show_welcome_menu():
     print("🤖 Welcome to RAG News QA System!")
     print("=" * 60)
     print("\nWhat would you like to do?")
-    print("1. Start Interactive Q&A")
-    print("2. Ask a Single Question")
-    print("3. Show Dataset Statistics")
-    print("4. Exit")
+    print("1. Start Interactive Q&A (Retrieval Only)")
+    print("2. Start Interactive Q&A (With LLM - Groq)")
+    print("3. Ask a Single Question (Retrieval Only)")
+    print("4. Ask a Single Question (With LLM - Groq)")
+    print("5. Show Dataset Statistics")
+    print("6. Exit")
     print("=" * 60)
     
-    choice = input("\nYour choice (1-4): ").strip()
+    choice = input("\nYour choice (1-6): ").strip()
     return choice
 
 
@@ -168,18 +211,27 @@ def main():
     if len(sys.argv) == 1:
         choice = show_welcome_menu()
         
-        if choice == "1": 
-            sys.argv.extend(["--interactive"])
+        if choice == "1":
+            sys.argv. extend(["--interactive"])
         elif choice == "2":
+            sys. argv.extend(["--interactive", "--llm"])
+        elif choice == "3":
             query = input("\n💬 Enter your question: ").strip()
             if query:
-                sys.argv.extend(["--query", query])
+                sys.argv. extend(["--query", query])
             else:
                 print("❌ No query provided!")
                 return
-        elif choice == "3":
-            sys.argv.extend(["--show-stats", "--interactive"])
         elif choice == "4":
+            query = input("\n💬 Enter your question: ").strip()
+            if query:
+                sys.argv. extend(["--query", query, "--llm"])
+            else:
+                print("❌ No query provided!")
+                return
+        elif choice == "5":
+            sys.argv.extend(["--show-stats", "--interactive"])
+        elif choice == "6":
             print("\n👋 Goodbye!")
             return
         else:
@@ -187,21 +239,28 @@ def main():
             return
     
     parser = argparse.ArgumentParser(
-        description='RAG News QA System',
+        description='RAG News QA System with LLM Integration',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Interactive mode (default)
+  # Interactive mode (default, retrieval only)
   python main.py
   
-  # Interactive mode with hybrid retrieval
-  python main.py --strategy hybrid --interactive
+  # Interactive mode with LLM
+  python main.py --llm --interactive
   
-  # Single query with BM25
-  python main. py --query "What is the latest technology news?"
+  # Single query with LLM
+  python main. py --llm --query "How is the economy performing this year?"
   
-  # Use preprocessed data
-  python main. py --load-processed data/processed/processed_news.pkl
+  # Single query without LLM (faster)
+  python main.py --query "What is the latest technology news?"
+  
+  # With different retrieval strategies
+  python main. py --strategy hybrid --llm --interactive
+  python main.py --strategy faiss --query "AI innovations"
+  
+  # Use preprocessed data for faster loading
+  python main.py --load-processed data/processed/processed_news.pkl --llm --interactive
         """
     )
     
@@ -215,7 +274,7 @@ Examples:
                        default='bm25',
                        help='Retrieval strategy (default: bm25)')
     parser.add_argument('--top-k', type=int, default=5,
-                       help='Number of documents to retrieve (default: 5)')
+                       help='Number of documents to retrieve (default:  5)')
     parser.add_argument('--save-processed', type=str,
                        help='Save processed data to this path')
     parser.add_argument('--load-processed', type=str,
@@ -224,6 +283,10 @@ Examples:
                        help='Run in interactive mode')
     parser.add_argument('--show-stats', action='store_true',
                        help='Show dataset statistics')
+    parser.add_argument('--llm', action='store_true',
+                       help='Enable LLM for answer generation (requires Groq API key in .env)')
+    parser.add_argument('--no-llm', action='store_true',
+                       help='Disable LLM (retrieval only, faster)')
     
     args = parser.parse_args()
     
@@ -235,18 +298,42 @@ Examples:
     if not args.query and not args.interactive:
         args.interactive = True
     
+    # Determine if LLM should be used
+    use_llm = args.llm and not args.no_llm
+    
     # Print header
     print("\n" + "=" * 60)
     print("🚀 RAG News QA System")
+    if use_llm:
+        print("   🧠 LLM Mode:  ENABLED (Groq)")
+    else:
+        print("   📄 LLM Mode: DISABLED (Retrieval Only)")
     print("=" * 60 + "\n")
+    
+    # Check for API key if LLM is enabled
+    if use_llm:
+        if not os.environ.get("GROQ_API_KEY"):
+            # Try loading from .env
+            try:
+                from dotenv import load_dotenv
+                load_dotenv()
+            except ImportError:
+                pass
+            
+            if not os.environ.get("GROQ_API_KEY"):
+                print("⚠️  WARNING:  GROQ_API_KEY not found!")
+                print("   Please set it in . env file or:")
+                print("   export GROQ_API_KEY=your_key_here")
+                print("\n   Continuing in retrieval-only mode.. .\n")
+                use_llm = False
     
     try:
         # Initialize preprocessor
         preprocessor = NewsDataPreprocessor()
         
         # Load or process data
-        if args.load_processed and os.path.exists(args. load_processed):
-            print(f"📥 Loading preprocessed data from: {args.load_processed}")
+        if args.load_processed and os.path.exists(args.load_processed):
+            print(f"📥 Loading preprocessed data from:  {args.load_processed}")
             documents = preprocessor.load_processed_data(args.load_processed)
         else:
             print(f"📥 Loading and processing dataset from: {args.data}")
@@ -268,19 +355,19 @@ Examples:
         # Process based on mode
         if args.interactive:
             # Interactive mode
-            interactive_mode(retriever, documents, args.top_k)
+            interactive_mode(retriever, documents, args.top_k, use_llm)
         elif args.query:
             # Single query mode
             process_single_query(args.query, retriever, documents,
-                               args.top_k, query_processor)
+                               args.top_k, query_processor, use_llm)
         else:
             # Fallback to interactive
             print("ℹ️ No query provided. Starting interactive mode...")
-            interactive_mode(retriever, documents, args. top_k)
+            interactive_mode(retriever, documents, args. top_k, use_llm)
     
     except FileNotFoundError as e:
         print(f"\n❌ Error: {e}")
-        print("\nPlease ensure the dataset is at: data/News_Category_Dataset_v3.json")
+        print("\nPlease ensure the dataset is at:  data/News_Category_Dataset_v3.json")
         print("\nOr download it using:")
         print("  python examples/download_data.py")
         print("\nOr manually download from:")

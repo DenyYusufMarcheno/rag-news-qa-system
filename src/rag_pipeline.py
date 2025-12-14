@@ -1,216 +1,145 @@
-"""RAG Pipeline combining retrieval with LLM generation."""
+"""
+RAG Pipeline module - Enhanced with LLM integration.
+"""
 
-from typing import List, Dict, Any, Optional
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-import torch
+from typing import List, Dict, Optional
+from src.llm_integration import create_llm
 
 
-class RAGPipeline:
-    """Retrieval-Augmented Generation pipeline."""
+class EnhancedRAGPipeline:
+    """RAG Pipeline with LLM generation."""
     
-    def __init__(self, retriever, model_name: str = "facebook/opt-125m", device: Optional[str] = None):
-        """
-        Initialize RAG pipeline.
+    def __init__(
+        self, 
+        retriever, 
+        llm_provider: str = "groq",
+        llm_model: str = "llama-3.1-8b-instant",
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+        top_k: int = 5
+    ):
+        """Initialize RAG pipeline.
         
         Args:
             retriever: Document retriever (BM25, FAISS, or Hybrid)
-            model_name: Name of the LLM model (default: small OPT model for demo)
-            device: Device to run the model on ('cpu', 'cuda', or None for auto)
+            llm_provider:  LLM provider name
+            llm_model: Model name for the LLM
+            temperature: LLM temperature
+            max_tokens: Max tokens for generation
+            top_k: Number of documents to retrieve
         """
         self.retriever = retriever
+        self. top_k = top_k
         
-        # Auto-detect device if not specified
-        if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device = device
-        
-        # Determine if using CUDA
-        is_cuda = torch.cuda.is_available() and device.startswith("cuda")
-        
-        print(f"Loading model {model_name} on {self.device}...")
-        
-        # Load tokenizer and model
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16 if is_cuda else torch.float32,
-            low_cpu_mem_usage=True
-        )
-        self.model = self.model.to(self.device)
-        
-        # Create text generation pipeline
-        self.generator = pipeline(
-            "text-generation",
-            model=self.model,
-            tokenizer=self.tokenizer,
-            device=0 if is_cuda else -1
-        )
-        
-        print("Model loaded successfully!")
-        
-    def retrieve_documents(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        """
-        Retrieve relevant documents for a query.
-        
-        Args:
-            query: User query
-            top_k: Number of documents to retrieve
-            
-        Returns:
-            List of retrieved documents with metadata
-        """
-        results = self.retriever.retrieve(query, top_k=top_k)
-        
-        retrieved_docs = []
-        for idx, score, text in results:
-            retrieved_docs.append({
-                'index': idx,
-                'score': score,
-                'text': text
-            })
-        
-        return retrieved_docs
-    
-    def create_prompt(self, query: str, retrieved_docs: List[Dict[str, Any]]) -> str:
-        """
-        Create a prompt combining query and retrieved documents.
-        
-        Args:
-            query: User query
-            retrieved_docs: List of retrieved documents
-            
-        Returns:
-            Formatted prompt string
-        """
-        # Build context from retrieved documents
-        context = "\n\n".join([
-            f"Document {i+1}: {doc['text']}"
-            for i, doc in enumerate(retrieved_docs)
-        ])
-        
-        # Create prompt
-        prompt = f"""Based on the following news articles, please answer the question.
-
-Context:
-{context}
-
-Question: {query}
-
-Answer:"""
-        
-        return prompt
-    
-    def generate_answer(self, query: str, top_k: int = 3, max_length: int = 200) -> Dict[str, Any]:
-        """
-        Generate an answer for a query using RAG.
-        
-        Args:
-            query: User query
-            top_k: Number of documents to retrieve
-            max_length: Maximum length of generated answer
-            
-        Returns:
-            Dictionary containing answer and retrieved documents
-        """
-        # Retrieve relevant documents
-        retrieved_docs = self.retrieve_documents(query, top_k=top_k)
-        
-        # Create prompt
-        prompt = self.create_prompt(query, retrieved_docs)
-        
-        # Generate answer
+        # Initialize LLM
         try:
-            # Truncate prompt if too long
-            inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-            input_length = inputs['input_ids'].shape[1]
-            
-            outputs = self.generator(
-                prompt,
-                max_new_tokens=max_length,
-                num_return_sequences=1,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                pad_token_id=self.tokenizer.eos_token_id
+            self.llm = create_llm(
+                provider=llm_provider,
+                model=llm_model,
+                temperature=temperature,
+                max_tokens=max_tokens
             )
-            
-            # Extract generated text (remove prompt)
-            generated_text = outputs[0]['generated_text']
-            answer = generated_text[len(prompt):].strip()
-            
+            self.llm_enabled = True
         except Exception as e:
-            answer = f"Error generating answer: {str(e)}"
-        
-        return {
-            'query': query,
-            'answer': answer,
-            'retrieved_documents': retrieved_docs,
-            'num_retrieved': len(retrieved_docs)
-        }
+            print(f"⚠️  LLM initialization failed: {e}")
+            print("   Running in retrieval-only mode")
+            self.llm = None
+            self.llm_enabled = False
     
-    def batch_generate(self, queries: List[str], top_k: int = 3) -> List[Dict[str, Any]]:
+    def query(self, query: str, top_k: Optional[int] = None) -> Dict:
+        """Process query through full RAG pipeline.
+        
+        Args:
+            query: User query
+            top_k: Number of documents to retrieve (overrides default)
+            
+        Returns: 
+            Dictionary with answer and metadata
         """
-        Generate answers for multiple queries.
+        k = top_k or self.top_k
+        
+        # Step 1: Retrieve documents
+        print(f"🔎 Retrieving top-{k} documents...")
+        results = self.retriever.retrieve(query, top_k=k)
+        
+        # Get full documents
+        retrieved_docs = []
+        for idx, score in results:
+            doc = self.retriever.documents[idx]
+            doc['retrieval_score'] = score
+            retrieved_docs.append(doc)
+        
+        print(f"✅ Retrieved {len(retrieved_docs)} documents")
+        
+        # Step 2: Generate answer with LLM (if enabled)
+        if self.llm_enabled and self.llm:
+            print(f"🤖 Generating answer with LLM...")
+            response = self.llm.answer_query(query, retrieved_docs)
+            print(f"✅ Answer generated")
+            return response
+        else:
+            # Retrieval-only mode
+            return {
+                'query': query,
+                'answer': None,
+                'retrieved_docs': retrieved_docs,
+                'num_sources': len(retrieved_docs),
+                'mode': 'retrieval_only'
+            }
+    
+    def batch_query(self, queries: List[str], top_k: Optional[int] = None) -> List[Dict]:
+        """Process multiple queries. 
         
         Args:
             queries: List of queries
-            top_k: Number of documents to retrieve per query
+            top_k: Number of documents per query
             
         Returns:
-            List of results for each query
+            List of responses
         """
-        results = []
-        for query in queries:
-            result = self.generate_answer(query, top_k=top_k)
-            results.append(result)
+        responses = []
+        for i, query in enumerate(queries, 1):
+            print(f"\n--- Query {i}/{len(queries)} ---")
+            response = self.query(query, top_k)
+            responses.append(response)
         
-        return results
+        return responses
 
 
 class SimpleRAGPipeline:
-    """Simplified RAG pipeline without LLM (for demonstration)."""
+    """Simple RAG Pipeline (retrieval only, no LLM)."""
     
-    def __init__(self, retriever):
-        """
-        Initialize simple RAG pipeline.
+    def __init__(self, retriever, top_k: int = 5):
+        """Initialize simple pipeline.
         
         Args:
             retriever: Document retriever
+            top_k: Number of documents to retrieve
         """
         self.retriever = retriever
-        
-    def generate_answer(self, query: str, top_k: int = 3) -> Dict[str, Any]:
-        """
-        Generate answer by returning retrieved documents.
+        self.top_k = top_k
+    
+    def query(self, query: str, top_k: Optional[int] = None) -> Dict:
+        """Retrieve documents for query.
         
         Args:
             query: User query
-            top_k: Number of documents to retrieve
+            top_k: Number of documents
             
         Returns:
-            Dictionary containing retrieved documents
+            Dictionary with retrieved documents
         """
-        results = self.retriever.retrieve(query, top_k=top_k)
+        k = top_k or self.top_k
+        results = self.retriever.retrieve(query, top_k=k)
         
         retrieved_docs = []
-        for idx, score, text in results:
-            retrieved_docs.append({
-                'index': idx,
-                'score': score,
-                'text': text
-            })
-        
-        # Create a simple answer by concatenating top documents
-        if retrieved_docs:
-            answer = "Based on the retrieved documents:\n\n"
-            for i, doc in enumerate(retrieved_docs):
-                answer += f"{i+1}. {doc['text'][:200]}...\n\n"
-        else:
-            answer = "No relevant documents found."
+        for idx, score in results:
+            doc = self.retriever.documents[idx]
+            doc['retrieval_score'] = score
+            retrieved_docs.append(doc)
         
         return {
             'query': query,
-            'answer': answer,
-            'retrieved_documents': retrieved_docs,
-            'num_retrieved': len(retrieved_docs)
+            'retrieved_docs': retrieved_docs,
+            'num_sources': len(retrieved_docs)
         }
