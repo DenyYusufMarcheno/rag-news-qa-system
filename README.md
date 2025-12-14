@@ -22,7 +22,7 @@ This guide covers:
 
 This is an educational RAG system implementing document retrieval and question answering on news articles.
 
-For full documentation and implementation details, see the [implementation branch](https://github.com/DenyYusufMarcheno/rag-news-qa-system/tree/copilot/implement-document-retrieval-llm):
+For full documentation and implementation details, see the [implementation branch](../../tree/copilot/implement-document-retrieval-llm):
 - Complete README with installation and usage instructions
 - Technical report (REPORT.md)
 - Implementation summary (IMPLEMENTATION_SUMMARY.md)
