@@ -87,6 +87,10 @@ class FAISSRetriever:
             convert_to_numpy=True
         )
         
+        # Validate embeddings
+        if len(self.embeddings.shape) != 2 or self.embeddings.shape[1] == 0:
+            raise ValueError(f"Invalid embedding shape: {self.embeddings.shape}. Expected 2D array with non-zero dimension.")
+        
         # Build FAISS index
         dimension = self.embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dimension)

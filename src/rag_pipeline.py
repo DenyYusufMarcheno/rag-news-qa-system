@@ -24,13 +24,16 @@ class RAGPipeline:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
         
+        # Determine if using CUDA
+        is_cuda = torch.cuda.is_available() and device.startswith("cuda")
+        
         print(f"Loading model {model_name} on {self.device}...")
         
         # Load tokenizer and model
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.float16 if "cuda" in device else torch.float32,
+            torch_dtype=torch.float16 if is_cuda else torch.float32,
             low_cpu_mem_usage=True
         )
         self.model = self.model.to(self.device)
@@ -40,7 +43,7 @@ class RAGPipeline:
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            device=0 if "cuda" in device else -1
+            device=0 if is_cuda else -1
         )
         
         print("Model loaded successfully!")
