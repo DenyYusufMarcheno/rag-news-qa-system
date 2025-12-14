@@ -2,7 +2,7 @@
 
 This document outlines the fundamental subjects and concepts you should learn to fully understand and work with this RAG (Retrieval-Augmented Generation) News QA System project.
 
-> **Note:** The complete implementation with working code is available in the [`copilot/implement-document-retrieval-llm`](https://github.com/DenyYusufMarcheno/rag-news-qa-system/tree/copilot/implement-document-retrieval-llm) branch. Code examples in this guide reference files from that implementation branch.
+> **Note:** The complete implementation with working code is available in the [`copilot/implement-document-retrieval-llm`](../../tree/copilot/implement-document-retrieval-llm) branch. Code examples in this guide reference files from that implementation branch.
 
 ## Table of Contents
 
@@ -498,7 +498,7 @@ If you want to understand this specific project quickly:
 
 ## Project-Specific Learning Exercises
 
-> **Note:** These exercises use files from the [`implementation branch`](https://github.com/DenyYusufMarcheno/rag-news-qa-system/tree/copilot/implement-document-retrieval-llm). Clone that branch to follow along with the code examples.
+> **Note:** These exercises use files from the [`implementation branch`](../../tree/copilot/implement-document-retrieval-llm). Clone that branch to follow along with the code examples.
 
 ### Exercise 1: Understand BM25
 1. Read `src/retrieval.py` - `BM25Retriever` class
@@ -610,6 +610,6 @@ To understand this RAG News QA System, you need knowledge across multiple domain
 
 For questions or clarifications, refer to:
 - Project README: `README.md` (this branch)
-- Implementation details: [`IMPLEMENTATION_SUMMARY.md`](https://github.com/DenyYusufMarcheno/rag-news-qa-system/blob/copilot/implement-document-retrieval-llm/IMPLEMENTATION_SUMMARY.md) (implementation branch)
-- Technical report: [`REPORT.md`](https://github.com/DenyYusufMarcheno/rag-news-qa-system/blob/copilot/implement-document-retrieval-llm/REPORT.md) (implementation branch)
-- Code examples: [`examples/`](https://github.com/DenyYusufMarcheno/rag-news-qa-system/tree/copilot/implement-document-retrieval-llm/examples) directory (implementation branch)
+- Implementation details: [`IMPLEMENTATION_SUMMARY.md`](../../blob/copilot/implement-document-retrieval-llm/IMPLEMENTATION_SUMMARY.md) (implementation branch)
+- Technical report: [`REPORT.md`](../../blob/copilot/implement-document-retrieval-llm/REPORT.md) (implementation branch)
+- Code examples: [`examples/`](../../tree/copilot/implement-document-retrieval-llm/examples) directory (implementation branch)
