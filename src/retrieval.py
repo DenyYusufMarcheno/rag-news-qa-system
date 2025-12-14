@@ -1,228 +1,398 @@
-"""Document retrieval module using BM25 and FAISS."""
+"""
+Retrieval module for RAG News QA System. 
+Implements BM25, FAISS, and Hybrid retrieval strategies.
+"""
 
-from typing import List, Tuple, Dict, Any
 import numpy as np
+import pickle
+from typing import List, Dict, Tuple
 from rank_bm25 import BM25Okapi
-import faiss
-from sentence_transformers import SentenceTransformer
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+    print("⚠️ FAISS not available. Install with: pip install faiss-cpu")
+
+from src.query_processor import QueryProcessor
 
 
 class BM25Retriever:
-    """BM25-based document retriever."""
+    """BM25-based retrieval system."""
     
-    def __init__(self):
-        """Initialize BM25 retriever."""
-        self.bm25 = None
-        self.documents = None
-        self.tokenized_docs = None
-        
-    def build_index(self, documents: List[str]):
-        """
-        Build BM25 index from documents.
+    def __init__(self, documents: List[Dict] = None):
+        """Initialize BM25 retriever.
         
         Args:
-            documents: List of document strings
+            documents:  List of processed documents
         """
-        self.documents = documents
-        # Simple tokenization by splitting on whitespace
-        self.tokenized_docs = [doc.lower().split() for doc in documents]
+        self. documents = documents or []
+        self.bm25 = None
+        self.tokenized_docs = None
+        self.query_processor = QueryProcessor()
+    
+    def tokenize(self, text: str) -> List[str]:
+        """Tokenize text into words.
+        
+        Args:
+            text: Input text
+            
+        Returns: 
+            List of tokens
+        """
+        return text.lower().split()
+    
+    def build_index(self):
+        """Build BM25 index from documents."""
+        if not self.documents:
+            raise ValueError("No documents provided")
+        
+        print(f"   Tokenizing {len(self.documents)} documents...")
+        
+        # Extract text and tokenize
+        self.tokenized_docs = []
+        for doc in self.documents:
+            text = doc.get('text', '')
+            tokens = self.tokenize(text)
+            self.tokenized_docs.append(tokens)
+        
+        print(f"   Building BM25 index...")
         self.bm25 = BM25Okapi(self.tokenized_docs)
         
-    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float, str]]:
-        """
-        Retrieve top-k most relevant documents for a query.
+        print(f"   ✅ BM25 index built with {len(self.tokenized_docs)} documents")
+    
+    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float]]:
+        """Retrieve documents using BM25.
         
         Args:
-            query: Query string
-            top_k: Number of documents to retrieve
+            query: Search query
+            top_k: Number of results to return
             
-        Returns:
-            List of tuples (document_index, score, document_text)
+        Returns: 
+            List of (document_index, score) tuples
         """
         if self.bm25 is None:
             raise ValueError("Index not built. Call build_index() first.")
         
-        tokenized_query = query.lower().split()
+        # Process query
+        processed = self.query_processor.process(query)
+        
+        # Use expanded query for better results
+        enhanced_query = processed['expanded']
+        tokenized_query = self.tokenize(enhanced_query)
+        
+        # Get BM25 scores
         scores = self.bm25.get_scores(tokenized_query)
         
         # Get top-k indices
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        top_indices = np. argsort(scores)[::-1][:top_k * 3]  # Get more candidates
         
-        results = []
-        for idx in top_indices:
-            results.append((int(idx), float(scores[idx]), self.documents[idx]))
+        # Filter by category if applicable
+        category_filters = processed['category_filters']
+        if category_filters: 
+            filtered_results = []
+            
+            for idx in top_indices:
+                if idx >= len(self.documents):
+                    continue
+                    
+                doc = self.documents[idx]
+                doc_category = doc.get('category', '')
+                
+                # Check if document category matches filter
+                if doc_category in category_filters:
+                    filtered_results.append((int(idx), float(scores[idx])))
+                
+                if len(filtered_results) >= top_k:
+                    break
+            
+            # If not enough filtered results, add unfiltered ones
+            if len(filtered_results) < top_k: 
+                for idx in top_indices:
+                    if idx >= len(self. documents):
+                        continue
+                    if (int(idx), float(scores[idx])) not in filtered_results: 
+                        filtered_results.append((int(idx), float(scores[idx])))
+                    if len(filtered_results) >= top_k:
+                        break
+            
+            results = filtered_results[: top_k]
+        else: 
+            results = [(int(idx), float(scores[idx])) for idx in top_indices[: top_k]]
         
         return results
+    
+    def save_index(self, path: str):
+        """Save index to file."""
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'bm25': self.bm25,
+                'tokenized_docs':  self.tokenized_docs
+            }, f)
+        print(f"💾 BM25 index saved to {path}")
+    
+    def load_index(self, path: str):
+        """Load index from file."""
+        with open(path, 'rb') as f:
+            data = pickle.load(f)
+            self.bm25 = data['bm25']
+            self.tokenized_docs = data['tokenized_docs']
+        print(f"📥 BM25 index loaded from {path}")
 
 
 class FAISSRetriever:
-    """FAISS-based dense retriever using sentence embeddings."""
+    """FAISS-based dense retrieval system."""
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        """
-        Initialize FAISS retriever.
+    def __init__(self, documents:  List[Dict] = None, model_name: str = 'sentence-transformers/all-MiniLM-L6-v2'):
+        """Initialize FAISS retriever.
         
         Args:
-            model_name: Name of the sentence transformer model
+            documents: List of processed documents
+            model_name: Name of sentence transformer model
         """
-        self.model = SentenceTransformer(model_name)
+        if not FAISS_AVAILABLE: 
+            raise ImportError("FAISS not available. Install with: pip install faiss-cpu")
+        
+        self.documents = documents or []
+        self.model_name = model_name
         self.index = None
-        self.documents = None
         self.embeddings = None
+        self.model = None
+        self.query_processor = QueryProcessor()
+    
+    def load_model(self):
+        """Load sentence transformer model."""
+        try:
+            from sentence_transformers import SentenceTransformer
+            print(f"   Loading model: {self.model_name}...")
+            self.model = SentenceTransformer(self. model_name)
+            print(f"   ✅ Model loaded")
+        except ImportError:
+            raise ImportError("sentence-transformers not installed.  Install with: pip install sentence-transformers")
+    
+    def build_index(self):
+        """Build FAISS index from documents."""
+        if not self.documents:
+            raise ValueError("No documents provided")
         
-    def build_index(self, documents: List[str]):
-        """
-        Build FAISS index from documents.
+        # Load model
+        if self.model is None:
+            self.load_model()
         
-        Args:
-            documents: List of document strings
-        """
-        self.documents = documents
+        print(f"   Encoding {len(self.documents)} documents...")
+        
+        # Extract texts
+        texts = [doc.get('text', '') for doc in self.documents]
         
         # Generate embeddings
-        print(f"Generating embeddings for {len(documents)} documents...")
-        self.embeddings = self.model.encode(
-            documents, 
-            show_progress_bar=True,
-            convert_to_numpy=True
-        )
-        
-        # Validate embeddings
-        if len(self.embeddings.shape) != 2 or self.embeddings.shape[1] == 0:
-            raise ValueError(f"Invalid embedding shape: {self.embeddings.shape}. Expected 2D array with non-zero dimension.")
+        self.embeddings = self.model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
         
         # Build FAISS index
+        print(f"   Building FAISS index...")
         dimension = self.embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(dimension)
-        self.index.add(self.embeddings.astype('float32'))
+        self.index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
         
-        print(f"FAISS index built with {self.index.ntotal} vectors")
+        # Normalize embeddings for cosine similarity
+        faiss.normalize_L2(self.embeddings)
         
-    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float, str]]:
-        """
-        Retrieve top-k most relevant documents for a query.
+        # Add to index
+        self.index.add(self.embeddings)
+        
+        print(f"   ✅ FAISS index built with {self.index.ntotal} vectors")
+    
+    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float]]: 
+        """Retrieve documents using FAISS.
         
         Args:
-            query: Query string
-            top_k: Number of documents to retrieve
+            query: Search query
+            top_k: Number of results to return
             
-        Returns:
-            List of tuples (document_index, distance, document_text)
+        Returns: 
+            List of (document_index, score) tuples
         """
         if self.index is None:
             raise ValueError("Index not built. Call build_index() first.")
         
+        # Process query
+        processed = self.query_processor.process(query)
+        enhanced_query = processed['expanded']
+        
         # Encode query
-        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        query_embedding = self.model.encode([enhanced_query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
         
-        # Search in FAISS
-        distances, indices = self.index.search(query_embedding.astype('float32'), top_k)
+        # Search
+        scores, indices = self.index.search(query_embedding, top_k * 3)
         
-        results = []
-        for i, (idx, dist) in enumerate(zip(indices[0], distances[0])):
-            results.append((int(idx), float(dist), self.documents[idx]))
+        # Filter by category
+        category_filters = processed['category_filters']
+        if category_filters:
+            filtered_results = []
+            
+            for idx, score in zip(indices[0], scores[0]):
+                if idx >= len(self.documents):
+                    continue
+                    
+                doc = self.documents[idx]
+                doc_category = doc. get('category', '')
+                
+                if doc_category in category_filters: 
+                    filtered_results.append((int(idx), float(score)))
+                
+                if len(filtered_results) >= top_k:
+                    break
+            
+            # Fill with unfiltered if needed
+            if len(filtered_results) < top_k:
+                for idx, score in zip(indices[0], scores[0]):
+                    if idx >= len(self.documents):
+                        continue
+                    if (int(idx), float(score)) not in filtered_results: 
+                        filtered_results.append((int(idx), float(score)))
+                    if len(filtered_results) >= top_k:
+                        break
+            
+            results = filtered_results[:top_k]
+        else:
+            results = [(int(idx), float(score)) for idx, score in zip(indices[0], scores[0])][:top_k]
         
         return results
     
-    def save_index(self, filepath: str):
-        """
-        Save FAISS index to file.
-        
-        Args:
-            filepath: Output file path
-        """
-        if self.index is None:
-            raise ValueError("No index to save.")
-        
-        faiss.write_index(self.index, filepath)
-        
-    def load_index(self, filepath: str):
-        """
-        Load FAISS index from file.
-        
-        Args:
-            filepath: Input file path
-        """
-        self.index = faiss.read_index(filepath)
+    def save_index(self, path: str):
+        """Save FAISS index."""
+        faiss.write_index(self. index, f"{path}.index")
+        np.save(f"{path}.npy", self.embeddings)
+        print(f"💾 FAISS index saved to {path}")
+    
+    def load_index(self, path: str):
+        """Load FAISS index."""
+        self.index = faiss.read_index(f"{path}.index")
+        self.embeddings = np.load(f"{path}.npy")
+        if self.model is None:
+            self.load_model()
+        print(f"📥 FAISS index loaded from {path}")
 
 
 class HybridRetriever:
-    """Hybrid retriever combining BM25 and FAISS."""
+    """Hybrid retrieval combining BM25 and FAISS."""
     
-    def __init__(self, bm25_weight: float = 0.5, faiss_weight: float = 0.5):
-        """
-        Initialize hybrid retriever.
+    def __init__(self, documents: List[Dict] = None, alpha: float = 0.5):
+        """Initialize hybrid retriever. 
         
         Args:
-            bm25_weight: Weight for BM25 scores
-            faiss_weight: Weight for FAISS scores
+            documents: List of processed documents
+            alpha: Weight for BM25 (1-alpha for FAISS)
         """
-        self.bm25_retriever = BM25Retriever()
-        self.faiss_retriever = FAISSRetriever()
-        self.bm25_weight = bm25_weight
-        self.faiss_weight = faiss_weight
+        self.documents = documents or []
+        self.alpha = alpha
+        self.bm25_retriever = BM25Retriever(documents)
         
-    def build_index(self, documents: List[str]):
-        """
-        Build both BM25 and FAISS indexes.
+        if FAISS_AVAILABLE: 
+            self.faiss_retriever = FAISSRetriever(documents)
+        else:
+            print("⚠️ FAISS not available, using BM25 only")
+            self.faiss_retriever = None
+        
+        self.query_processor = QueryProcessor()
+    
+    def build_index(self):
+        """Build both BM25 and FAISS indices."""
+        print("   Building BM25 component...")
+        self.bm25_retriever. build_index()
+        
+        if self.faiss_retriever:
+            print("   Building FAISS component...")
+            self.faiss_retriever.build_index()
+        
+        print(f"   ✅ Hybrid index built")
+    
+    def normalize_scores(self, scores: np.ndarray) -> np.ndarray:
+        """Normalize scores to [0, 1] range."""
+        if len(scores) == 0:
+            return scores
+        min_score = np.min(scores)
+        max_score = np.max(scores)
+        if max_score - min_score == 0:
+            return np.ones_like(scores)
+        return (scores - min_score) / (max_score - min_score)
+    
+    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float]]:
+        """Retrieve using hybrid approach.
         
         Args:
-            documents: List of document strings
-        """
-        self.bm25_retriever.build_index(documents)
-        self.faiss_retriever.build_index(documents)
-        
-    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[int, float, str]]:
-        """
-        Retrieve documents using hybrid approach.
-        
-        Args:
-            query: Query string
-            top_k: Number of documents to retrieve
+            query: Search query
+            top_k: Number of results to return
             
-        Returns:
-            List of tuples (document_index, combined_score, document_text)
+        Returns: 
+            List of (document_index, score) tuples
         """
-        # Get results from both retrievers
-        bm25_results = self.bm25_retriever.retrieve(query, top_k=top_k*2)
-        faiss_results = self.faiss_retriever.retrieve(query, top_k=top_k*2)
+        # Get BM25 results
+        bm25_results = self.bm25_retriever.retrieve(query, top_k=top_k * 2)
         
-        # Normalize scores
-        def normalize_scores(results):
-            if not results:
-                return {}
-            scores = [r[1] for r in results]
-            min_score, max_score = min(scores), max(scores)
-            if max_score - min_score == 0:
-                return {r[0]: 0.5 for r in results}
-            return {r[0]: (r[1] - min_score) / (max_score - min_score) for r in results}
+        if not self.faiss_retriever:
+            return bm25_results[: top_k]
         
-        def invert_distances_to_scores(results):
-            """Convert FAISS distances (lower is better) to scores (higher is better)."""
-            return [(r[0], -r[1], r[2]) for r in results]
-        
-        bm25_scores = normalize_scores(bm25_results)
-        # For FAISS, lower distance is better, so invert before normalizing
-        faiss_scores = normalize_scores(invert_distances_to_scores(faiss_results))
+        # Get FAISS results
+        faiss_results = self.faiss_retriever.retrieve(query, top_k=top_k * 2)
         
         # Combine scores
-        all_doc_indices = set(bm25_scores.keys()) | set(faiss_scores.keys())
         combined_scores = {}
         
-        for idx in all_doc_indices:
-            bm25_score = bm25_scores.get(idx, 0)
-            faiss_score = faiss_scores.get(idx, 0)
-            combined_scores[idx] = (
-                self.bm25_weight * bm25_score + 
-                self.faiss_weight * faiss_score
-            )
+        # Add BM25 scores
+        bm25_scores = np.array([score for _, score in bm25_results])
+        bm25_scores_norm = self.normalize_scores(bm25_scores)
         
-        # Get top-k
-        sorted_indices = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        for (idx, _), norm_score in zip(bm25_results, bm25_scores_norm):
+            combined_scores[idx] = self.alpha * norm_score
         
-        results = []
-        documents = self.bm25_retriever.documents
-        for idx, score in sorted_indices:
-            results.append((idx, score, documents[idx]))
+        # Add FAISS scores
+        faiss_scores = np.array([score for _, score in faiss_results])
+        faiss_scores_norm = self.normalize_scores(faiss_scores)
+        
+        for (idx, _), norm_score in zip(faiss_results, faiss_scores_norm):
+            if idx in combined_scores:
+                combined_scores[idx] += (1 - self.alpha) * norm_score
+            else: 
+                combined_scores[idx] = (1 - self.alpha) * norm_score
+        
+        # Sort by combined score
+        sorted_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        # Return top-k
+        results = [(int(idx), float(score)) for idx, score in sorted_results[:top_k]]
         
         return results
+    
+    def save_index(self, path:  str):
+        """Save both indices."""
+        self.bm25_retriever.save_index(f"{path}_bm25.pkl")
+        if self.faiss_retriever:
+            self. faiss_retriever.save_index(f"{path}_faiss")
+    
+    def load_index(self, path: str):
+        """Load both indices."""
+        self. bm25_retriever.load_index(f"{path}_bm25.pkl")
+        if self.faiss_retriever:
+            self.faiss_retriever.load_index(f"{path}_faiss")
+
+
+# Utility functions
+def create_retriever(retriever_type: str, documents: List[Dict], **kwargs):
+    """Factory function to create retriever. 
+    
+    Args:
+        retriever_type: Type of retriever ('bm25', 'faiss', 'hybrid')
+        documents: List of documents
+        **kwargs: Additional arguments
+        
+    Returns:
+        Retriever object
+    """
+    if retriever_type == 'bm25':
+        return BM25Retriever(documents)
+    elif retriever_type == 'faiss':
+        return FAISSRetriever(documents, **kwargs)
+    elif retriever_type == 'hybrid': 
+        return HybridRetriever(documents, **kwargs)
+    else:
+        raise ValueError(f"Unknown retriever type: {retriever_type}")

@@ -1,127 +1,257 @@
-"""Data preprocessing module for news category dataset."""
+"""
+Data preprocessing module for RAG News QA System.
+Handles cleaning, tokenization, and preparation of news dataset.
+"""
 
 import json
-import pandas as pd
-from typing import List, Dict, Any
+import pickle
 import re
+from typing import List, Dict, Optional
+import os
 
 
-class NewsDataPreprocessor:
+class NewsDataPreprocessor: 
     """Preprocessor for News Category Dataset."""
     
     def __init__(self):
         """Initialize the preprocessor."""
-        self.data = None
+        self.documents = []
         
-    def load_data(self, filepath: str) -> pd.DataFrame:
-        """
-        Load news category dataset from JSON file.
-        
-        Args:
-            filepath: Path to the JSON file
-            
-        Returns:
-            DataFrame containing the news data
-        """
-        data_list = []
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                data_list.append(json.loads(line))
-        
-        self.data = pd.DataFrame(data_list)
-        return self.data
-    
     def clean_text(self, text: str) -> str:
-        """
-        Clean text by removing special characters and extra whitespace.
+        """Clean and normalize text. 
         
         Args:
-            text: Input text string
+            text: Raw text string
             
         Returns:
             Cleaned text string
         """
-        if not isinstance(text, str):
+        if not text:
             return ""
         
-        # Remove URLs
-        text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
-        
-        # Remove special characters but keep basic punctuation
-        text = re.sub(r'[^\w\s.,!?-]', '', text)
-        
         # Remove extra whitespace
-        text = ' '.join(text.split())
+        text = re. sub(r'\s+', ' ', text)
         
-        return text.strip()
+        # Remove special characters but keep punctuation
+        text = re.sub(r'[^\w\s\.\,\!\?\-\']', '', text)
+        
+        # Strip leading/trailing whitespace
+        text = text.strip()
+        
+        return text
     
-    def preprocess(self, combine_fields: bool = True) -> pd.DataFrame:
-        """
-        Preprocess the loaded dataset.
+    def process_document(self, item: Dict) -> Dict:
+        """Process a single document.
         
         Args:
-            combine_fields: If True, combine headline and description into document text
+            item:  Raw document dictionary
+            
+        Returns: 
+            Processed document with metadata
+        """
+        # Extract fields
+        headline = item.get('headline', '')
+        description = item.get('short_description', '')
+        category = item.get('category', 'UNKNOWN')
+        date = item.get('date', '')
+        link = item.get('link', '')
+        authors = item.get('authors', '')
+        
+        # Clean texts
+        headline_clean = self.clean_text(headline)
+        description_clean = self.clean_text(description)
+        
+        # Combine for full text representation
+        full_text = f"{headline_clean}. {description_clean}"
+        
+        # Create processed document
+        processed = {
+            'text': full_text,
+            'headline': headline_clean,
+            'description': description_clean,
+            'category': category,
+            'date': date,
+            'link': link,
+            'authors':  authors
+        }
+        
+        return processed
+    
+    def load_dataset(self, input_path: str) -> List[Dict]:
+        """Load dataset from JSON file.
+        
+        Args:
+            input_path:  Path to input JSON file
             
         Returns:
-            Preprocessed DataFrame
+            List of raw documents
         """
-        if self.data is None:
-            raise ValueError("No data loaded. Call load_data() first.")
+        print(f"📥 Loading dataset from:  {input_path}")
         
-        # Clean headline and short_description
-        self.data['headline_clean'] = self.data['headline'].apply(self.clean_text)
-        self.data['description_clean'] = self.data['short_description'].apply(self.clean_text)
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(f"Dataset not found at {input_path}")
         
-        # Combine fields into a single document text
-        if combine_fields:
-            self.data['document'] = (
-                self.data['headline_clean'] + '. ' + 
-                self.data['description_clean']
-            )
+        data = []
         
-        # Remove empty documents
-        if combine_fields:
-            self.data = self.data[self.data['document'].str.strip() != '']
+        # Try to load as JSONL (JSON Lines format)
+        try:
+            with open(input_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        data.append(json.loads(line))
+        except json.JSONDecodeError:
+            # Try as regular JSON array
+            with open(input_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
         
-        return self.data
+        print(f"✅ Loaded {len(data)} articles")
+        
+        return data
     
-    def get_documents(self) -> List[str]:
-        """
-        Get list of document texts.
-        
-        Returns:
-            List of document strings
-        """
-        if 'document' not in self.data.columns:
-            raise ValueError("Documents not created. Call preprocess() first.")
-        
-        return self.data['document'].tolist()
-    
-    def get_metadata(self) -> List[Dict[str, Any]]:
-        """
-        Get metadata for each document.
-        
-        Returns:
-            List of metadata dictionaries
-        """
-        metadata = []
-        for _, row in self.data.iterrows():
-            metadata.append({
-                'category': row.get('category', ''),
-                'date': row.get('date', ''),
-                'authors': row.get('authors', ''),
-                'link': row.get('link', '')
-            })
-        return metadata
-    
-    def save_processed_data(self, filepath: str):
-        """
-        Save processed data to CSV file.
+    def process_dataset(self, input_path: str, output_path: Optional[str] = None) -> List[Dict]:
+        """Process entire dataset.
         
         Args:
-            filepath: Output file path
+            input_path: Path to input dataset
+            output_path: Optional path to save processed data
+            
+        Returns:
+            List of processed documents
         """
-        if self.data is None:
-            raise ValueError("No data to save.")
+        # Load raw data
+        raw_data = self.load_dataset(input_path)
         
-        self.data.to_csv(filepath, index=False)
+        print("🔄 Processing documents...")
+        
+        # Process each document
+        processed_docs = []
+        for i, item in enumerate(raw_data):
+            try:
+                processed = self.process_document(item)
+                processed_docs.append(processed)
+                
+                # Progress indicator
+                if (i + 1) % 10000 == 0:
+                    print(f"   Processed {i + 1}/{len(raw_data)} documents...")
+                    
+            except Exception as e: 
+                print(f"⚠️  Error processing document {i}:  {e}")
+                continue
+        
+        print(f"✅ Successfully processed {len(processed_docs)} documents")
+        
+        # Save if output path provided
+        if output_path:
+            self.save_processed_data(processed_docs, output_path)
+        
+        self.documents = processed_docs
+        return processed_docs
+    
+    def save_processed_data(self, documents: List[Dict], output_path: str):
+        """Save processed documents to file.
+        
+        Args:
+            documents: List of processed documents
+            output_path: Path to save file
+        """
+        # Create directory if not exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        print(f"💾 Saving processed data to: {output_path}")
+        
+        with open(output_path, 'wb') as f:
+            pickle. dump(documents, f)
+        
+        print(f"✅ Saved {len(documents)} documents")
+    
+    def load_processed_data(self, input_path: str) -> List[Dict]:
+        """Load previously processed documents.
+        
+        Args:
+            input_path: Path to processed data file
+            
+        Returns:
+            List of processed documents
+        """
+        print(f"📥 Loading processed data from: {input_path}")
+        
+        with open(input_path, 'rb') as f:
+            documents = pickle.load(f)
+        
+        print(f"✅ Loaded {len(documents)} processed documents")
+        
+        self.documents = documents
+        return documents
+    
+    def get_statistics(self) -> Dict:
+        """Get dataset statistics.
+        
+        Returns:
+            Dictionary with statistics
+        """
+        if not self.documents:
+            return {}
+        
+        categories = {}
+        total_words = 0
+        
+        for doc in self.documents:
+            # Count categories
+            cat = doc.get('category', 'UNKNOWN')
+            categories[cat] = categories.get(cat, 0) + 1
+            
+            # Count words
+            total_words += len(doc.get('text', '').split())
+        
+        stats = {
+            'total_documents': len(self.documents),
+            'categories': categories,
+            'avg_words_per_doc': total_words / len(self.documents) if self.documents else 0
+        }
+        
+        return stats
+    
+    def print_statistics(self):
+        """Print dataset statistics."""
+        stats = self.get_statistics()
+        
+        print("\n📊 Dataset Statistics")
+        print("=" * 60)
+        print(f"Total Documents: {stats. get('total_documents', 0)}")
+        print(f"Average Words per Document: {stats.get('avg_words_per_doc', 0):.2f}")
+        print("\nCategory Distribution:")
+        
+        categories = stats.get('categories', {})
+        sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
+        
+        for cat, count in sorted_categories[: 10]:  # Show top 10
+            print(f"  {cat}: {count}")
+        
+        print("=" * 60)
+
+
+def main():
+    """Main function for standalone execution."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Preprocess News Category Dataset')
+    parser.add_argument('--input', type=str, required=True, help='Input dataset path')
+    parser.add_argument('--output', type=str, default='data/processed/processed_news. pkl',
+                       help='Output path for processed data')
+    parser.add_argument('--stats', action='store_true', help='Show statistics')
+    
+    args = parser.parse_args()
+    
+    # Initialize preprocessor
+    preprocessor = NewsDataPreprocessor()
+    
+    # Process dataset
+    documents = preprocessor.process_dataset(args.input, args.output)
+    
+    # Show statistics if requested
+    if args.stats:
+        preprocessor.print_statistics()
+
+
+if __name__ == "__main__":
+    main()
